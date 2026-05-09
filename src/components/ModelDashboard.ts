@@ -185,6 +185,9 @@ const chatPanel = $("chat-panel");
 const chatLog = $("chat-log");
 const chatEmpty = $("chat-empty");
 const chatInput = $<HTMLTextAreaElement>("chat-input");
+const chatInputWrap = $("chat-input-wrap");
+const chatInputPrompt = $("chat-input-prompt");
+const chatInputDownloadLink = $<HTMLAnchorElement>("chat-input-download-link");
 const chatStatus = $("chat-status");
 const sendStopLink = $<HTMLAnchorElement>("send-stop-link");
 const resetLink = $<HTMLAnchorElement>("reset-link");
@@ -290,11 +293,16 @@ function updateChatInputState() {
   const loadedHere = loaded != null && loaded.def.id === selectedId;
   const ready = cached || loadedHere;
   const loadingIntoGpu = busy && !loadedHere;
+  // Show the download-prompt (a clickable "Download" link) only when the
+  // model is neither cached nor loaded *and* we're not mid-load. While
+  // loading we keep the textarea visible with a "loading…" placeholder so
+  // users can see progress in the chat-status line below.
+  const showPrompt = !ready && !loadingIntoGpu;
+  chatInputPrompt.hidden = !showPrompt;
+  chatInputWrap.hidden = showPrompt;
   chatInput.disabled = !ready || loadingIntoGpu;
   if (loadingIntoGpu) {
     chatInput.placeholder = `loading ${modelDisplayLabel(def)}…`;
-  } else if (!ready) {
-    chatInput.placeholder = "download a model to start chatting";
   } else {
     chatInput.placeholder = def.chat ? "message selected model" : "start a completion";
   }
@@ -305,6 +313,11 @@ function updateChatInputState() {
   sendStopLink.classList.toggle("is-disabled", !generating && (busy || !ready));
   resetLink.classList.toggle("is-disabled", generating);
   generatingIndicator.hidden = !generating;
+}
+
+function autoResizeChatInput() {
+  chatInput.style.height = "auto";
+  chatInput.style.height = `${chatInput.scrollHeight}px`;
 }
 
 function updateSelectedUi() {
@@ -596,6 +609,7 @@ async function handleSend() {
   generating = true;
   stopFlag = false;
   chatInput.value = "";
+  autoResizeChatInput();
   updateChatInputState();
 
   transcript.push({ role: "you", text: userText, at: Date.now() });
@@ -728,6 +742,8 @@ chatInput.addEventListener("keydown", (e) => {
     handleSend();
   }
 });
+
+chatInput.addEventListener("input", autoResizeChatInput);
 
 function setMobileView(view: "picker" | "chat") {
   dashboardSection.dataset.mobileView = view;
@@ -961,6 +977,8 @@ const downloadSummaryBytes = $("download-summary-bytes");
 const downloadSummaryPct = $("download-summary-pct");
 const downloadParts = $("download-parts");
 const downloadEmpty = $("download-empty");
+const downloadStopLink = $<HTMLAnchorElement>("download-stop-link");
+const downloadStopPipe = $("download-stop-pipe");
 
 function getOrInitParts(id: string): Map<string, PartEvent> {
   let m = partsByModel.get(id);
@@ -1149,6 +1167,7 @@ function openDownloadDetails(id: string): void {
   }
   downloadOverlay.hidden = false;
   downloadOverlay.setAttribute("aria-hidden", "false");
+  syncDownloadStopVisibility();
   renderDownloadParts(id);
 }
 
@@ -1156,7 +1175,18 @@ function closeDownloadDetails(): void {
   currentDownloadModalId = null;
   downloadOverlay.hidden = true;
   downloadOverlay.setAttribute("aria-hidden", "true");
+  syncDownloadStopVisibility();
 }
+
+downloadStopLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  const id = currentDownloadModalId;
+  if (!id) return;
+  const controller = downloadAborts.get(id);
+  if (!controller) return;
+  downloadStopLink.classList.add("is-disabled");
+  controller.abort();
+});
 
 downloadOverlay.querySelectorAll<HTMLElement>("[data-download-dismiss]").forEach((el) => {
   el.addEventListener("click", (e) => {
@@ -1180,12 +1210,28 @@ document.querySelectorAll<HTMLAnchorElement>("[data-download-details-id]").forEa
 // --- download flow ----------------------------------------------------
 
 const downloadingIds = new Set<string>();
+const downloadAborts = new Map<string, AbortController>();
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
+function syncDownloadStopVisibility() {
+  const id = currentDownloadModalId;
+  const active = id != null && downloadingIds.has(id);
+  downloadStopLink.hidden = !active;
+  downloadStopPipe.hidden = !active;
+  if (active) downloadStopLink.classList.remove("is-disabled");
+}
 
 async function downloadModel(link: HTMLAnchorElement, id: string) {
   if (downloadingIds.has(id)) return;
   const def = MODELS.find((m) => m.id === id);
   if (!def) return;
   downloadingIds.add(id);
+  const controller = new AbortController();
+  downloadAborts.set(id, controller);
+  syncDownloadStopVisibility();
   const original = link.textContent ?? "download";
   link.classList.add("is-disabled");
   const badge = document.querySelector<HTMLElement>(`[data-cache-id="${id}"]`);
@@ -1229,10 +1275,15 @@ async function downloadModel(link: HTMLAnchorElement, id: string) {
     };
     await Promise.all(
       urls.map((url) =>
-        fetchCached(url, undefined, (e) => {
-          recordPart(id, e);
-          recompute();
-        }),
+        fetchCached(
+          url,
+          undefined,
+          (e) => {
+            recordPart(id, e);
+            recompute();
+          },
+          controller.signal,
+        ),
       ),
     );
     if (badge) {
@@ -1258,12 +1309,19 @@ async function downloadModel(link: HTMLAnchorElement, id: string) {
       void handleLoad();
     }
   } catch (err) {
-    console.error(`download failed for ${id}`, err);
-    setLinkText("download failed");
-    setTimeout(() => setLinkText(original), 2500);
+    if (isAbortError(err)) {
+      setLinkText("stopped");
+      setTimeout(() => setLinkText(original), 2500);
+    } else {
+      console.error(`download failed for ${id}`, err);
+      setLinkText("download failed");
+      setTimeout(() => setLinkText(original), 2500);
+    }
   } finally {
     link.classList.remove("is-disabled");
     downloadingIds.delete(id);
+    downloadAborts.delete(id);
+    syncDownloadStopVisibility();
     refreshCacheStatus();
   }
 }
@@ -1274,6 +1332,20 @@ document.querySelectorAll<HTMLAnchorElement>("[data-download-id]").forEach((a) =
     const id = a.dataset.downloadId;
     if (id) downloadModel(a, id);
   });
+});
+
+// In-input "Download" link, shown when the selected model isn't cached.
+// One click both opens the download modal (so the user sees per-shard
+// progress) and kicks off the download for the row's hidden link, so the
+// existing per-id state machine drives both views.
+chatInputDownloadLink.addEventListener("click", (e) => {
+  e.preventDefault();
+  if (chatInputDownloadLink.classList.contains("is-disabled")) return;
+  const id = selectedId;
+  openDownloadDetails(id);
+  if (downloadingIds.has(id) || getCacheState(id) === "cached") return;
+  const rowLink = document.querySelector<HTMLAnchorElement>(`[data-download-id="${id}"]`);
+  if (rowLink) downloadModel(rowLink, id);
 });
 
 const navWithGpu = navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } };
@@ -1292,5 +1364,6 @@ if (navWithGpu.gpu) {
 
 updateSelectedUi();
 updateChatInputState();
+autoResizeChatInput();
 loadConversationForSelected();
 refreshCacheStatus();

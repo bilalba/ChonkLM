@@ -80,7 +80,6 @@ const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publ
     <section class="chat-pane" id="chat" aria-label="chat">
       <div class="chat-head">
         <div class="selected-copy">
-          <div class="eyebrow">selected</div>
           <h2 class="pane-title" id="selected-label">{modelDisplayLabel(defaultModel)}</h2>
           <p id="selected-pitch">{modelDisplayPitch(defaultModel)}</p>
         </div>
@@ -103,8 +102,12 @@ const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publ
       </div>
 
       <form id="chat-form" class="chat-form">
-        <div class="chat-input-wrap">
-          <textarea id="chat-input" rows="4" placeholder="message selected model"></textarea>
+        <div class="chat-input-prompt" id="chat-input-prompt" hidden>
+          <a class="link active" href="#" id="chat-input-download-link">Download</a>
+          <span> model to start chatting</span>
+        </div>
+        <div class="chat-input-wrap" id="chat-input-wrap">
+          <textarea id="chat-input" rows="1" placeholder="message selected model"></textarea>
           <a class="link active chat-send" href="#" id="send-stop-link" data-mode="send" aria-label="send message">send</a>
         </div>
         <div class="chat-status" id="chat-status" hidden></div>
@@ -150,7 +153,11 @@ const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publ
           <div class="eyebrow">download</div>
           <h2 class="pane-title" id="download-title"></h2>
         </div>
-        <a href="#" class="link" data-download-dismiss>close</a>
+        <div class="download-head-actions">
+          <a href="#" class="link" id="download-stop-link" hidden>stop download</a>
+          <span class="pipe" id="download-stop-pipe" hidden>|</span>
+          <a href="#" class="link" data-download-dismiss>close</a>
+        </div>
       </div>
       <div class="download-summary">
         <span id="download-summary-status">queued</span>

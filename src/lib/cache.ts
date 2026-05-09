@@ -174,9 +174,10 @@ export async function fetchCached(
   url: string,
   onProgress?: ProgressCallback,
   onPart?: PartCallback,
+  signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   if (isShardedUrl(url)) {
-    await prefetchSharded(url, onProgress, onPart);
+    await prefetchSharded(url, onProgress, onPart, signal);
     return new ArrayBuffer(0);
   }
   const name = urlTail(url);
@@ -201,7 +202,7 @@ export async function fetchCached(
 
   let res: Response;
   try {
-    res = await fetch(url, { credentials: "same-origin" });
+    res = await fetch(url, { credentials: "same-origin", signal });
   } catch (e) {
     onPart?.({ url, name, loaded: 0, total: null, status: "error", fromNetwork: true });
     throw e;
@@ -332,6 +333,7 @@ async function prefetchSharded(
   shardDirUrl: string,
   onProgress?: ProgressCallback,
   onPart?: PartCallback,
+  signal?: AbortSignal,
 ): Promise<void> {
   const manifestUrl = manifestUrlFor(shardDirUrl);
   if (onPart) {
@@ -408,6 +410,7 @@ async function prefetchSharded(
         },
         onPart,
         shardDirUrl,
+        signal,
       ),
     ),
   );
@@ -494,6 +497,7 @@ async function fetchShardCached(
   onProgress?: ProgressCallback,
   onPart?: PartCallback,
   parent?: string,
+  signal?: AbortSignal,
 ): Promise<ArrayBuffer> {
   const name = urlTail(url);
   // Cache API short-circuits the semaphore — already-cached shards are free,
@@ -528,7 +532,7 @@ async function fetchShardCached(
     try {
       let res: Response;
       try {
-        res = await fetch(url, { credentials: "same-origin" });
+        res = await fetch(url, { credentials: "same-origin", signal });
       } catch (e) {
         onPart?.({ url, name, loaded: 0, total: expectedSize, status: "error", fromNetwork: true, parent });
         throw e;
