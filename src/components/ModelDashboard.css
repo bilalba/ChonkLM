@@ -393,6 +393,13 @@
   padding-top: 0.2rem;
 }
 
+#reset-link {
+  color: var(--foreground);
+  text-transform: none;
+  letter-spacing: -0.02em;
+  font-size: 12px;
+}
+
 .chat-status {
   margin: 0.5rem 0 0;
   color: var(--neutral-600);

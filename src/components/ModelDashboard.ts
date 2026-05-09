@@ -188,6 +188,7 @@ const chatInput = $<HTMLTextAreaElement>("chat-input");
 const chatInputWrap = $("chat-input-wrap");
 const chatInputPrompt = $("chat-input-prompt");
 const chatInputDownloadLink = $<HTMLAnchorElement>("chat-input-download-link");
+const chatInputPromptSuffix = $("chat-input-prompt-suffix");
 const chatStatus = $("chat-status");
 const sendStopLink = $<HTMLAnchorElement>("send-stop-link");
 const resetLink = $<HTMLAnchorElement>("reset-link");
@@ -300,6 +301,19 @@ function updateChatInputState() {
   const showPrompt = !ready && !loadingIntoGpu;
   chatInputPrompt.hidden = !showPrompt;
   chatInputWrap.hidden = showPrompt;
+  if (showPrompt) {
+    const isDownloading = downloadingIds.has(selectedId);
+    if (isDownloading) {
+      const pct = computeDownloadPercent(selectedId);
+      chatInputDownloadLink.textContent = pct == null
+        ? "Download details"
+        : `Download details (${pct.toFixed(0)}%)`;
+      chatInputPromptSuffix.hidden = true;
+    } else {
+      chatInputDownloadLink.textContent = "Download";
+      chatInputPromptSuffix.hidden = false;
+    }
+  }
   chatInput.disabled = !ready || loadingIntoGpu;
   if (loadingIntoGpu) {
     chatInput.placeholder = `loading ${modelDisplayLabel(def)}…`;
@@ -1010,6 +1024,25 @@ function formatPartBytes(n: number): string {
   return `${n} B`;
 }
 
+function computeDownloadPercent(id: string): number | null {
+  const parts = partsByModel.get(id);
+  if (!parts || parts.size === 0) return null;
+  let loaded = 0;
+  let total = 0;
+  let unknown = false;
+  let hasShard = false;
+  for (const p of parts.values()) {
+    loaded += p.loaded;
+    if (p.total == null) unknown = true;
+    else total += p.total;
+    if (p.parent && p.name !== "manifest.json") hasShard = true;
+  }
+  if (hasShard && !unknown && total > 0) {
+    return Math.min(100, (loaded / total) * 100);
+  }
+  return null;
+}
+
 function isShardedDirUrl(url: string): boolean {
   const path = url.split("?")[0].split("#")[0];
   const lastSlash = path.lastIndexOf("/");
@@ -1232,6 +1265,7 @@ async function downloadModel(link: HTMLAnchorElement, id: string) {
   const controller = new AbortController();
   downloadAborts.set(id, controller);
   syncDownloadStopVisibility();
+  if (id === selectedId) updateChatInputState();
   const original = link.textContent ?? "download";
   link.classList.add("is-disabled");
   const badge = document.querySelector<HTMLElement>(`[data-cache-id="${id}"]`);
@@ -1251,27 +1285,9 @@ async function downloadModel(link: HTMLAnchorElement, id: string) {
     // tokenizer + manifest totals would round to a misleading near-100%
     // (the old "67% jump" bug) — so suppress the percent in that window.
     const recompute = () => {
-      const parts = partsByModel.get(id);
-      if (!parts || parts.size === 0) {
-        setLinkText("downloading…");
-        return;
-      }
-      let loaded = 0;
-      let total = 0;
-      let unknown = false;
-      let hasShard = false;
-      for (const p of parts.values()) {
-        loaded += p.loaded;
-        if (p.total == null) unknown = true;
-        else total += p.total;
-        if (p.parent && p.name !== "manifest.json") hasShard = true;
-      }
-      if (hasShard && !unknown && total > 0) {
-        const pct = Math.min(100, (loaded / total) * 100);
-        setLinkText(`downloading ${pct.toFixed(0)}%`);
-      } else {
-        setLinkText("downloading…");
-      }
+      const pct = computeDownloadPercent(id);
+      setLinkText(pct == null ? "downloading…" : `downloading ${pct.toFixed(0)}%`);
+      if (id === selectedId) updateChatInputState();
     };
     await Promise.all(
       urls.map((url) =>
@@ -1322,6 +1338,7 @@ async function downloadModel(link: HTMLAnchorElement, id: string) {
     downloadingIds.delete(id);
     downloadAborts.delete(id);
     syncDownloadStopVisibility();
+    if (id === selectedId) updateChatInputState();
     refreshCacheStatus();
   }
 }
@@ -1334,16 +1351,18 @@ document.querySelectorAll<HTMLAnchorElement>("[data-download-id]").forEach((a) =
   });
 });
 
-// In-input "Download" link, shown when the selected model isn't cached.
-// One click both opens the download modal (so the user sees per-shard
-// progress) and kicks off the download for the row's hidden link, so the
-// existing per-id state machine drives both views.
+// In-input prompt link. Before a download starts it reads "Download" and
+// kicks off the download in place — without opening the modal. Once the
+// download is in flight it flips to "Download details (NN%)" and a click
+// opens the modal so the user can inspect per-shard progress.
 chatInputDownloadLink.addEventListener("click", (e) => {
   e.preventDefault();
   if (chatInputDownloadLink.classList.contains("is-disabled")) return;
   const id = selectedId;
-  openDownloadDetails(id);
-  if (downloadingIds.has(id) || getCacheState(id) === "cached") return;
+  if (downloadingIds.has(id) || getCacheState(id) === "cached") {
+    openDownloadDetails(id);
+    return;
+  }
   const rowLink = document.querySelector<HTMLAnchorElement>(`[data-download-id="${id}"]`);
   if (rowLink) downloadModel(rowLink, id);
 });

@@ -88,7 +88,7 @@ const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publ
           <span class="pipe">|</span>
           <span id="rate-label">- tok/s</span>
           <span class="pipe">|</span>
-          <a class="link" href="#" id="reset-link">new conversation</a>
+          <a class="link active" href="#" id="reset-link">new conversation</a>
         </div>
       </div>
 
@@ -104,7 +104,7 @@ const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publ
       <form id="chat-form" class="chat-form">
         <div class="chat-input-prompt" id="chat-input-prompt" hidden>
           <a class="link active" href="#" id="chat-input-download-link">Download</a>
-          <span> model to start chatting</span>
+          <span id="chat-input-prompt-suffix"> model to start chatting</span>
         </div>
         <div class="chat-input-wrap" id="chat-input-wrap">
           <textarea id="chat-input" rows="1" placeholder="message selected model"></textarea>
