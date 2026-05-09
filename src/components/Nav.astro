@@ -1,0 +1,33 @@
+---
+import ThemeToggle from "./ThemeToggle.astro";
+import Logo from "./Logo.astro";
+---
+
+<nav class="nav">
+  <div class="container">
+    <a href="/" class="logo">
+      <Logo class="logo-mark" />
+      <span>chonklm</span>
+    </a>
+    <div class="nav-links">
+      <a href="https://github.com/bilalba/ChonkLM" class="link" rel="noopener">github</a>
+      <span class="pipe">|</span>
+      <ThemeToggle />
+    </div>
+  </div>
+</nav>
+
+<style>
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+  }
+  .logo :global(.logo-mark) {
+    width: 22px;
+    height: 22px;
+    display: block;
+    color: var(--foreground);
+  }
+</style>

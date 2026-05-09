@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chonklm-web",
+  "compatibility_date": "2026-01-01",
+  // Worker entrypoint: thin static-assets passthrough.
+  // GGUF weights ship as ≤24 MiB shards via the static-assets binding
+  // (web/scripts/shard-gguf.mjs + copy-models-to-dist.mjs). No R2.
+  "main": "worker/index.ts",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

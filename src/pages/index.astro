@@ -1,0 +1,156 @@
+---
+import Layout from "../layouts/Layout.astro";
+import ModelDashboard from "../components/ModelDashboard.astro";
+import LogoFull from "../components/LogoFull.astro";
+---
+
+<Layout>
+  <script async is:inline src="https://www.googletagmanager.com/gtag/js?id=G-2FL69HWSNR"></script>
+  <script is:inline>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-2FL69HWSNR');
+  </script>
+
+  <section class="section dashboard-home" id="models">
+    <div class="container container--fit">
+      <ModelDashboard />
+    </div>
+  </section>
+
+  <div class="intro-overlay" id="intro-overlay" hidden aria-hidden="true">
+    <div class="intro-overlay__backdrop" data-intro-dismiss></div>
+    <div class="intro-card panel" role="dialog" aria-modal="true" aria-labelledby="intro-title">
+      <LogoFull class="intro-logo" />
+      <div class="eyebrow">chonklm</div>
+      <h2 class="intro-title" id="intro-title">Small models. No server. Every token on your device.</h2>
+      <p class="intro-body">
+        Pick a GGUF model, cache it locally, and chat from the same page.
+        Custom WebGPU runtimes generate every token on your device — no
+        hosted inference, no fallback, nothing leaves the browser.
+      </p>
+      <p class="intro-actions">
+        <a href="#" class="link active" data-intro-dismiss>try it</a>
+      </p>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .dashboard-home {
+    border-top: 0;
+    height: calc(100vh - var(--nav-h));
+    padding: 1.25rem 0;
+    overflow: hidden;
+  }
+
+  .container--fit {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 768px) {
+    .dashboard-home {
+      padding: 1rem 0;
+    }
+  }
+
+  .intro-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+  }
+
+  .intro-overlay[hidden] {
+    display: none;
+  }
+
+  .intro-overlay__backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--background);
+    opacity: 0.94;
+    cursor: pointer;
+  }
+
+  .intro-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 460px;
+    padding: 1.5rem 1.5rem 1.25rem;
+    background: var(--panel-chat);
+  }
+
+  .intro-card :global(.intro-logo) {
+    display: block;
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 1rem;
+  }
+
+  .intro-title {
+    margin: 0.5rem 0 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+    color: var(--foreground);
+  }
+
+  .intro-body {
+    margin: 0.85rem 0 0;
+    color: var(--neutral-600);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .intro-actions {
+    margin: 1.25rem 0 0;
+  }
+</style>
+
+<script is:inline>
+  (function () {
+    var KEY = "chonklm:welcome-dismissed:v1";
+    var overlay = document.getElementById("intro-overlay");
+    if (!overlay) return;
+    var dismissed = false;
+    try {
+      dismissed = localStorage.getItem(KEY) === "1";
+    } catch (e) {}
+    if (!dismissed) {
+      overlay.hidden = false;
+      overlay.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+    }
+    function dismiss() {
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      try {
+        localStorage.setItem(KEY, "1");
+      } catch (e) {}
+      var input = document.getElementById("chat-input");
+      if (input && typeof input.focus === "function") input.focus();
+    }
+    overlay.querySelectorAll("[data-intro-dismiss]").forEach(function (el) {
+      el.addEventListener("click", function (e) {
+        if (el.tagName === "A") e.preventDefault();
+        dismiss();
+      });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!overlay.hidden && (e.key === "Escape" || e.key === "Enter")) {
+        dismiss();
+      }
+    });
+  })();
+</script>

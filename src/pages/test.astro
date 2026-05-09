@@ -1,0 +1,292 @@
+---
+// Headless harness page. No UI — Playwright drives this via window.runInference.
+// Lives at /test/ in dev (excluded from prod via the page guard below).
+import Layout from "../layouts/Layout.astro";
+
+if (import.meta.env.PROD) {
+  // Defense-in-depth: don't ship the test harness to production. Astro's
+  // dev/build modes expose this flag; in prod builds the page renders a
+  // 404-ish placeholder rather than wiring up the inference globals.
+}
+---
+
+<Layout title="chonklm — internal test harness">
+  <main style="padding: 2rem; font-family: monospace;">
+    <h1 style="font-size: 14px; font-weight: 600;">chonklm test harness</h1>
+    <p id="status" style="font-size: 12px; color: #666;">booting…</p>
+    <pre id="log" style="font-size: 11px; white-space: pre-wrap; max-width: 800px;"></pre>
+  </main>
+</Layout>
+
+<script>
+  import {
+    loadLfmWgslModel,
+    generateLfmWgsl,
+    resetLfmWgslConversation,
+    type LoadedLfmWgslModel,
+  } from "../lib/lfm-wgsl-runtime";
+  import {
+    loadLlamaWgslModel,
+    generateLlamaWgsl,
+    resetLlamaWgslConversation,
+    type LoadedLlamaWgslModel,
+  } from "../lib/llama-wgsl-runtime";
+  import {
+    loadGemmaModel,
+    generateGemma,
+    type LoadedGemmaModel,
+  } from "../lib/gemma-runtime";
+  import {
+    loadGraniteWgslModel,
+    generateGraniteWgsl,
+    resetGraniteWgslConversation,
+    type LoadedGraniteWgslModel,
+  } from "../lib/granite-wgsl-runtime";
+  import {
+    loadGptWgslModel,
+    generateGptWgsl,
+    resetGptWgslConversation,
+    type LoadedGptWgslModel,
+  } from "../lib/gpt-wgsl-runtime";
+  import { getModel } from "../lib/registry";
+  import { clearCache, type ProgressCallback } from "../lib/cache";
+
+  // Surface results to Playwright. We expose:
+  //   window.runInference(modelId, prompt, max?) -> Promise<Result>
+  //   window.clearChonkCache() -> Promise<void>     // wipe Cache API
+  //   window.chonklmReady     -> Promise<void>      // resolves when wiring is done
+  //
+  // The driver awaits chonklmReady, then calls runInference. Errors thrown
+  // from inside runInference propagate as rejected promises and become
+  // the test's failure message — no need to wire a separate error channel.
+
+  type Result = {
+    ep: "webgpu";
+    text: string;
+    tokensPerSec: number;
+    promptTokens: number;
+    generatedTokens: number;
+    elapsedSec: number;
+  };
+  type LfmGenerationOptions = {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    repetitionPenalty?: number;
+  };
+
+  declare global {
+    interface Window {
+      runInference: (
+        modelId: string,
+        prompt: string,
+        max?: number,
+        options?: LfmGenerationOptions,
+      ) => Promise<Result>;
+      probeLfmPrefixCache: (modelId?: string) => Promise<{
+        before: number;
+        after: number;
+        extendedPromptTokens: number;
+        suffixTokens: number;
+        advanced: number;
+        reused: boolean;
+      }>;
+      probeWgslPrefixCache: (modelId: string) => Promise<{
+        before: number;
+        after: number;
+        extendedPromptTokens: number;
+        suffixTokens: number;
+        advanced: number;
+        reused: boolean;
+      }>;
+      clearChonkCache: () => Promise<void>;
+      chonklmReady: Promise<void>;
+    }
+  }
+
+  const status = document.getElementById("status") as HTMLElement;
+  const log = document.getElementById("log") as HTMLElement;
+  const append = (s: string) => {
+    log.textContent += s + "\n";
+  };
+
+  // Cache loaded models so back-to-back runs of the same model don't re-pay
+  // GPU setup. The Cache API still holds the bytes; this just keeps runtime
+  // state warm in-memory.
+  type HarnessModel =
+    | LoadedLfmWgslModel
+    | LoadedLlamaWgslModel
+    | LoadedGraniteWgslModel
+    | LoadedGptWgslModel
+    | LoadedGemmaModel;
+  const sessions = new Map<string, HarnessModel>();
+
+  const isGemma = (loaded: HarnessModel): loaded is LoadedGemmaModel =>
+    (loaded as LoadedGemmaModel).runtime === "gemma-webgpu";
+  const isLfmWgsl = (loaded: HarnessModel): loaded is LoadedLfmWgslModel =>
+    (loaded as LoadedLfmWgslModel).runtime === "lfm2-webgpu";
+  const isLlamaWgsl = (loaded: HarnessModel): loaded is LoadedLlamaWgslModel =>
+    (loaded as LoadedLlamaWgslModel).runtime === "llama-webgpu";
+  const isGraniteWgsl = (loaded: HarnessModel): loaded is LoadedGraniteWgslModel =>
+    (loaded as LoadedGraniteWgslModel).runtime === "granite-webgpu";
+  const isGptWgsl = (loaded: HarnessModel): loaded is LoadedGptWgslModel =>
+    (loaded as LoadedGptWgslModel).runtime === "gpt-webgpu";
+
+  window.chonklmReady = (async () => {
+    window.clearChonkCache = clearCache;
+
+    window.probeWgslPrefixCache = async (modelId) => {
+      const def = getModel(modelId);
+      if (def.runtime !== "lfm2-webgpu" && def.runtime !== "llama-webgpu" && def.runtime !== "granite-webgpu" && def.runtime !== "gpt-webgpu") {
+        throw new Error(`${modelId} does not use a prefix-cacheable WGSL runtime`);
+      }
+      let loaded = sessions.get(modelId);
+      if (!loaded) {
+        loaded = def.runtime === "lfm2-webgpu"
+          ? await loadLfmWgslModel(def)
+          : def.runtime === "llama-webgpu"
+            ? await loadLlamaWgslModel(def)
+            : def.runtime === "granite-webgpu"
+              ? await loadGraniteWgslModel(def)
+              : await loadGptWgslModel(def);
+        sessions.set(modelId, loaded);
+      }
+
+      if (isLfmWgsl(loaded)) {
+        resetLfmWgslConversation(loaded);
+      } else if (isLlamaWgsl(loaded)) {
+        resetLlamaWgslConversation(loaded);
+      } else if (isGraniteWgsl(loaded)) {
+        resetGraniteWgslConversation(loaded);
+      } else if (isGptWgsl(loaded)) {
+        resetGptWgslConversation(loaded);
+      } else {
+        throw new Error(`${modelId} did not load through a supported WGSL runtime`);
+      }
+
+      const firstPrompt = def.chat
+        ? loaded.tokenizer.encodeChat([{ role: "user", content: "Say alpha." }])
+        : loaded.tokenizer.encode("Say alpha.", { addSpecialTokens: !!def.rawAddSpecialTokens });
+      if (isLfmWgsl(loaded)) {
+        await generateLfmWgsl(loaded, firstPrompt, { maxNewTokens: 4 });
+      } else if (isLlamaWgsl(loaded)) {
+        await generateLlamaWgsl(loaded, firstPrompt, { maxNewTokens: 4 });
+      } else if (isGraniteWgsl(loaded)) {
+        await generateGraniteWgsl(loaded, firstPrompt, { maxNewTokens: 4 });
+      } else {
+        await generateGptWgsl(loaded, firstPrompt, { maxNewTokens: 4 });
+      }
+
+      const suffix = loaded.tokenizer.encode(" continue");
+      const extendedPrompt = loaded.cachedTokenIds.concat(suffix);
+      const before = loaded.engine.position;
+      if (isLfmWgsl(loaded)) {
+        await generateLfmWgsl(loaded, extendedPrompt, { maxNewTokens: 1 });
+      } else if (isLlamaWgsl(loaded)) {
+        await generateLlamaWgsl(loaded, extendedPrompt, { maxNewTokens: 1 });
+      } else if (isGraniteWgsl(loaded)) {
+        await generateGraniteWgsl(loaded, extendedPrompt, { maxNewTokens: 1 });
+      } else {
+        await generateGptWgsl(loaded, extendedPrompt, { maxNewTokens: 1 });
+      }
+      const after = loaded.engine.position;
+      const advanced = after - before;
+      return {
+        before,
+        after,
+        extendedPromptTokens: extendedPrompt.length,
+        suffixTokens: suffix.length,
+        advanced,
+        reused: advanced < extendedPrompt.length,
+      };
+    };
+    window.probeLfmPrefixCache = (modelId = "lfm2_5-350m-wgsl") => window.probeWgslPrefixCache(modelId);
+
+    window.runInference = async (modelId, prompt, max = 64, options = {}) => {
+      const def = getModel(modelId);
+      append(`# load ${modelId}`);
+      let loaded = sessions.get(modelId);
+      if (!loaded) {
+        const progress: ProgressCallback = (e) => {
+          // Don't flood the log with chunked progress; one line at completion.
+          if (e.total != null && e.loaded === e.total) {
+            const mb = (e.total / 1_048_576).toFixed(1);
+            append(`  fetched ${e.url.split("/").pop()} (${mb} MB${e.fromNetwork ? " net" : " cache"})`);
+          }
+        };
+        loaded = def.runtime === "gemma-webgpu"
+          ? await loadGemmaModel(def, progress)
+          : def.runtime === "lfm2-webgpu"
+            ? await loadLfmWgslModel(def, progress)
+            : def.runtime === "llama-webgpu"
+              ? await loadLlamaWgslModel(def, progress)
+              : def.runtime === "granite-webgpu"
+                ? await loadGraniteWgslModel(def, progress)
+                : def.runtime === "gpt-webgpu"
+                  ? await loadGptWgslModel(def, progress)
+                  : (() => {
+                      throw new Error(`unsupported runtime: ${def.runtime}`);
+                    })();
+        sessions.set(modelId, loaded);
+      }
+      append(`# ep=${loaded.ep}`);
+
+      if (isGemma(loaded)) {
+        append(`# prompt token count unavailable for gemma-webgpu, generating up to ${max}…`);
+        const t0 = performance.now();
+        const out = await generateGemma(loaded, [{ role: "user", content: prompt }], { maxNewTokens: max, ...options });
+        const elapsedSec = (performance.now() - t0) / 1000;
+        append(`# done: ${out.generatedTokens} tokens · ${out.tokensPerSec.toFixed(1)} tok/s`);
+        append(`---`);
+        append(out.text);
+        append(`---`);
+        return {
+          ep: loaded.ep,
+          text: out.text,
+          tokensPerSec: out.tokensPerSec,
+          promptTokens: 0,
+          generatedTokens: out.generatedTokens,
+          elapsedSec,
+        };
+      }
+
+      let promptIds: number[];
+      if (def.chat) {
+        promptIds = loaded.tokenizer.encodeChat([{ role: "user", content: prompt }]);
+      } else {
+        promptIds = loaded.tokenizer.encode(prompt, { addSpecialTokens: !!def.rawAddSpecialTokens });
+      }
+      append(`# prompt ${promptIds.length} tokens, generating up to ${max}…`);
+
+      const t0 = performance.now();
+      const out = isLfmWgsl(loaded)
+          ? await generateLfmWgsl(loaded, promptIds, { maxNewTokens: max, ...options })
+        : isLlamaWgsl(loaded)
+          ? await generateLlamaWgsl(loaded, promptIds, { maxNewTokens: max, ...options })
+        : isGraniteWgsl(loaded)
+          ? await generateGraniteWgsl(loaded, promptIds, { maxNewTokens: max, ...options })
+        : isGptWgsl(loaded)
+          ? await generateGptWgsl(loaded, promptIds, { maxNewTokens: max, ...options })
+        : (() => {
+            throw new Error(`unsupported loaded runtime: ${(loaded as { runtime?: string }).runtime}`);
+          })();
+      const elapsedSec = (performance.now() - t0) / 1000;
+
+      append(`# done: ${out.ids.length} tokens · ${out.tokensPerSec.toFixed(1)} tok/s`);
+      append(`---`);
+      append(out.text);
+      append(`---`);
+
+      return {
+        ep: loaded.ep,
+        text: out.text,
+        tokensPerSec: out.tokensPerSec,
+        promptTokens: promptIds.length,
+        generatedTokens: out.ids.length,
+        elapsedSec,
+      };
+    };
+
+    status.textContent = "ready · window.runInference(modelId, prompt, max?) available";
+  })();
+</script>

@@ -1,0 +1,170 @@
+---
+import {
+  DEFAULT_MODEL_ID,
+  MODELS,
+  isQ8,
+  modelDisplayLabel,
+  modelDisplayPitch,
+  modelLogo,
+} from "../lib/registry";
+import "./ModelDashboard.css";
+
+const publicModels = MODELS.filter((m) => !m.devOnly && !isQ8(m));
+const defaultModel = publicModels.find((m) => m.id === DEFAULT_MODEL_ID) ?? publicModels[0];
+---
+
+<section class="dashboard-section" id="dashboard" data-mobile-view="picker">
+  <nav class="mobile-tabs" aria-label="dashboard view">
+    <a href="#" class="mobile-tab" data-mobile-target="picker" aria-current="true">models</a>
+    <span class="pipe">|</span>
+    <a href="#" class="mobile-tab" data-mobile-target="chat">chat</a>
+  </nav>
+  <div class="dashboard-grid">
+    <aside class="model-pane" id="models" aria-label="models">
+      <div class="pane-head">
+        <div>
+          <div class="eyebrow">models</div>
+          <h2 class="pane-title">Pick a local model</h2>
+        </div>
+        <span class="cache-summary" id="storage-summary">checking cache</span>
+      </div>
+
+      <div class="model-list" id="model-list">
+        {MODELS.map((m) => {
+          const logo = modelLogo(m);
+          return (
+            <div
+              id={m.id}
+              class="model-row"
+              data-id={m.id}
+              data-dev-only={m.devOnly ? "1" : ""}
+              data-q8={isQ8(m) ? "1" : ""}
+              data-default={m.id === DEFAULT_MODEL_ID ? "1" : ""}
+              data-selected={m.id === defaultModel.id ? "1" : ""}
+            >
+              <div class="model-row-main">
+                {logo ? (
+                  <img class="model-logo" src={logo.src} alt={logo.alt} width="20" height="20" />
+                ) : null}
+                <a class={`link model-pick${m.id === defaultModel.id ? " active" : ""}`} href={`#${m.id}`} data-id={m.id}>
+                  {modelDisplayLabel(m)}
+                </a>
+                <span class="model-kind">{m.chat ? "chat" : "completion"}</span>
+                {m.devOnly ? <span class="model-kind">dev</span> : null}
+                {isQ8(m) ? <span class="model-kind">q8</span> : null}
+                {m.thinking ? <span class="model-kind">thinking</span> : null}
+              </div>
+              <span class="cache-badge" data-cache-id={m.id} data-state="checking">checking</span>
+              <div class="model-pitch">{modelDisplayPitch(m)}</div>
+              <p class="model-row-actions">
+                <a class="link" href="#" data-info-id={m.id}>info</a>
+                <span class="pipe">|</span>
+                <a class="link" href="#" data-download-id={m.id}>download</a>
+                <span class="pipe">|</span>
+                <a class="link" href="#" data-download-details-id={m.id}>details</a>
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <p class="model-actions">
+        <a class="link" href="#" id="history-link">history</a>
+        <span class="pipe">|</span>
+        <a class="link" href="#" id="refresh-cache-link">refresh cache</a>
+        <span class="pipe">|</span>
+        <a class="link" href="#" id="clear-cache-link">clear cache</a>
+      </p>
+    </aside>
+
+    <section class="chat-pane" id="chat" aria-label="chat">
+      <div class="chat-head">
+        <div class="selected-copy">
+          <div class="eyebrow">selected</div>
+          <h2 class="pane-title" id="selected-label">{modelDisplayLabel(defaultModel)}</h2>
+          <p id="selected-pitch">{modelDisplayPitch(defaultModel)}</p>
+        </div>
+        <div class="runtime-meta">
+          <span id="ep-label">GPU: probing</span>
+          <span class="pipe">|</span>
+          <span id="rate-label">- tok/s</span>
+          <span class="pipe">|</span>
+          <a class="link" href="#" id="reset-link">new conversation</a>
+        </div>
+      </div>
+
+      <div class="panel chat-panel" id="chat-panel">
+        <div class="chat-log" id="chat-log"></div>
+        <div class="chat-empty" id="chat-empty">Previous conversation for this model will appear here.</div>
+        <div class="chat-generating" id="chat-generating" hidden aria-live="polite">
+          <span class="chat-generating__dot" aria-hidden="true"></span>
+          <span>generating</span>
+        </div>
+      </div>
+
+      <form id="chat-form" class="chat-form">
+        <div class="chat-input-wrap">
+          <textarea id="chat-input" rows="4" placeholder="message selected model"></textarea>
+          <a class="link active chat-send" href="#" id="send-stop-link" data-mode="send" aria-label="send message">send</a>
+        </div>
+        <div class="chat-status" id="chat-status" hidden></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="info-overlay" id="info-overlay" hidden aria-hidden="true">
+    <div class="info-overlay__backdrop" data-info-dismiss></div>
+    <div class="info-card panel" role="dialog" aria-modal="true" aria-labelledby="info-title">
+      <div class="info-card__head">
+        <div>
+          <div class="eyebrow">model</div>
+          <h2 class="pane-title" id="info-title"></h2>
+        </div>
+        <a href="#" class="link" data-info-dismiss>close</a>
+      </div>
+      <p class="info-card__pitch" id="info-pitch"></p>
+      <dl class="info-card__list" id="info-list"></dl>
+    </div>
+  </div>
+
+  <div class="info-overlay" id="history-overlay" hidden aria-hidden="true">
+    <div class="info-overlay__backdrop" data-history-dismiss></div>
+    <div class="info-card panel" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <div class="info-card__head">
+        <div>
+          <div class="eyebrow">conversations</div>
+          <h2 class="pane-title" id="history-title">All conversations</h2>
+        </div>
+        <a href="#" class="link" data-history-dismiss>close</a>
+      </div>
+      <ul class="history-list" id="history-list"></ul>
+      <p class="history-empty" id="history-empty" hidden>No saved conversations yet.</p>
+    </div>
+  </div>
+
+  <div class="info-overlay" id="download-overlay" hidden aria-hidden="true">
+    <div class="info-overlay__backdrop" data-download-dismiss></div>
+    <div class="info-card panel download-card" role="dialog" aria-modal="true" aria-labelledby="download-title">
+      <div class="info-card__head">
+        <div>
+          <div class="eyebrow">download</div>
+          <h2 class="pane-title" id="download-title"></h2>
+        </div>
+        <a href="#" class="link" data-download-dismiss>close</a>
+      </div>
+      <div class="download-summary">
+        <span id="download-summary-status">queued</span>
+        <span class="pipe">|</span>
+        <span id="download-summary-bytes">0 B / 0 B</span>
+        <span class="pipe">|</span>
+        <span id="download-summary-pct">0%</span>
+      </div>
+      <ul class="download-parts" id="download-parts" aria-live="polite"></ul>
+      <p class="download-empty" id="download-empty">No parts known yet. Click <span class="kbd">download</span> to begin — shards appear here as they are discovered.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  import "./ModelDashboard";
+</script>

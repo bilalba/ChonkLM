@@ -1,0 +1,21 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="chonklm — dashboard">
+  <section class="section hero">
+    <div class="container">
+      <div class="eyebrow" style="margin-bottom: 1rem;">moved</div>
+      <h1 class="h1">The model dashboard now lives on the homepage.</h1>
+      <div class="prose" style="margin-top: 1.5rem;">
+        <p>
+          <a class="link active" href="/#models">open the dashboard</a>
+        </p>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<script is:inline>
+  window.location.replace("/#models");
+</script>
